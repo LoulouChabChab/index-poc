@@ -71,14 +71,22 @@ async def fetch_url(session_id: str, body: UrlPayload):
     _check_slot(body.slot)
 
     try:
-        schema = fetch_api(body.url, headers=body.headers, params=body.params)
-        schema["url"] = body.url
-        schema["type"] = "api"
+        result = fetch_api(body.url, headers=body.headers, params=body.params)
+        rows = result.pop("_rows", [])
+        result["url"] = body.url
+        result["type"] = "api"
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
-    _save_source(session_id, body.slot, schema)
-    return {"data": schema, "error": None}
+    # Persist raw rows so the merger can load them later
+    dest_dir = session_dir(session_id) / f"source_{body.slot}"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    (dest_dir / "data.json").write_text(
+        json.dumps(rows, ensure_ascii=False), encoding="utf-8"
+    )
+
+    _save_source(session_id, body.slot, result)
+    return {"data": result, "error": None}
 
 
 @router.get("/sessions/{session_id}/sources/{slot}/sheets")

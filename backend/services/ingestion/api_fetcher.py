@@ -26,7 +26,7 @@ def fetch_api(url: str, headers: dict | None = None, params: dict | None = None)
 
     rows = rows[:MAX_ROWS]
     columns = _extract_columns(rows)
-    return {"columns": columns, "row_count": len(rows)}
+    return {"columns": columns, "row_count": len(rows), "_rows": rows}
 
 
 def _extract_rows(payload) -> list[dict]:
