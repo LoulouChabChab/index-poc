@@ -1,19 +1,16 @@
-import { useState, useEffect } from 'react'
-import { getHealth } from './services/api'
+import { useState } from 'react'
+import { SessionProvider } from './context/SessionContext'
+import StepIngestion from './components/steps/StepIngestion'
+
+const STEPS = ['ingestion', 'mapping', 'preview']
 
 export default function App() {
-  const [backendStatus, setBackendStatus] = useState('Connexion en cours...')
-
-  useEffect(() => {
-    getHealth()
-      .then(data => setBackendStatus(`Backend ✓  |  Ollama : ${data.ollama}`))
-      .catch(() => setBackendStatus('Impossible de joindre le backend'))
-  }, [])
+  const [step, setStep] = useState('ingestion')
 
   return (
-    <div style={{ fontFamily: 'sans-serif', padding: '2rem' }}>
-      <h1>Index</h1>
-      <p>{backendStatus}</p>
-    </div>
+    <SessionProvider>
+      {step === 'ingestion' && <StepIngestion onDone={() => setStep('mapping')} />}
+      {step === 'mapping' && <div style={{ padding: '2rem', fontFamily: 'sans-serif' }}>Étape mapping — à venir (Epic 3)</div>}
+    </SessionProvider>
   )
 }
