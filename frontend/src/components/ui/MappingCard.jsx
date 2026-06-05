@@ -161,7 +161,7 @@ export default function MappingCard({ sessionId, index, proposal, schemaA, schem
           <ErrorMessage message={error} />
           <div style={styles.actions}>
             <button style={{ ...styles.btn, ...styles.btnConfirm }} disabled={refineLoading || !feedback.trim()} onClick={handleNlRefine}>
-              {refineLoading ? 'Analyse en cours…' : 'Envoyer à l'IA'}
+              {refineLoading ? 'Analyse en cours…' : "Envoyer à l'IA"}
             </button>
             <button style={styles.btnLink} onClick={() => setRejectMode('choose')}>Retour</button>
           </div>
