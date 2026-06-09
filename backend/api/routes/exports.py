@@ -16,7 +16,7 @@ PREVIEW_ROWS = 25
 async def preview(session_id: str):
     _check_session(session_id)
     try:
-        df = merge(session_id)
+        df, info = merge(session_id)
     except Exception as e:
         raise HTTPException(status_code=422, detail=str(e))
 
@@ -27,6 +27,9 @@ async def preview(session_id: str):
             "rows": rows,
             "total_rows": len(df),
             "total_cols": len(df.columns),
+            "join_key": info["join_key"],
+            "has_duplicates": info["has_duplicates"],
+            "duplicate_count": info["duplicate_count"],
         },
         "error": None,
     }
@@ -39,7 +42,7 @@ async def export_dataset(session_id: str, fmt: str = "csv"):
         raise HTTPException(status_code=422, detail="Format non supporté. Utilisez csv, xlsx ou json.")
 
     try:
-        df = merge(session_id)
+        df, _ = merge(session_id)
     except Exception as e:
         raise HTTPException(status_code=422, detail=str(e))
 

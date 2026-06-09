@@ -1,17 +1,21 @@
 import { useState } from 'react'
 import { useSession } from '../../context/SessionContext'
 import { createSession, uploadFile, fetchUrl } from '../../services/api'
+import { loadHistory, saveToHistory, removeFromHistory } from '../../utils/history'
 import ErrorMessage from '../ui/ErrorMessage'
 
+const BASE = 'http://localhost:8000'
 const SLOT_LABEL = { A: 'Source A', B: 'Source B' }
 
-export default function StepIngestion({ onDone }) {
-  const { sessionId, setSessionId, sources, setSource, context, setContext } = useSession()
+export default function StepIngestion({ onDone, onRestore }) {
+  const { sessionId, setSessionId, sources, setSource, context, setContext, restoreSession } = useSession()
   const [errors, setErrors] = useState({ A: null, B: null, global: null })
   const [loading, setLoading] = useState({ A: false, B: false })
   const [urlMode, setUrlMode] = useState({ A: false, B: false })
   const [urlInput, setUrlInput] = useState({ A: '', B: '' })
   const [sheetInfo, setSheetInfo] = useState({ A: null, B: null })
+  const [history, setHistory] = useState(() => loadHistory())
+  const [restoring, setRestoring] = useState(null)
 
   async function ensureSession() {
     if (sessionId) return sessionId
@@ -57,10 +61,53 @@ export default function StepIngestion({ onDone }) {
   async function handleAnalyze() {
     setErrors(e => ({ ...e, global: null }))
     try {
+      if (context.trim()) {
+        await fetch(`${BASE}/api/sessions/${sessionId}/context`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ context }),
+        })
+      }
+      saveToHistory({
+        session_id: sessionId,
+        created_at: new Date().toISOString(),
+        label_a: sources.A?.file_name || sources.A?.url || 'Source A',
+        label_b: sources.B?.file_name || sources.B?.url || 'Source B',
+        last_step: 'mapping',
+      })
+      setHistory(loadHistory())
       onDone()
     } catch (err) {
       setErrors(e => ({ ...e, global: err.message }))
     }
+  }
+
+  async function handleRestore(entry) {
+    setRestoring(entry.session_id)
+    setErrors(e => ({ ...e, global: null }))
+    try {
+      const res = await fetch(`${BASE}/api/sessions/${entry.session_id}`)
+      const json = await res.json()
+      if (!res.ok || json.error) throw new Error('Session introuvable ou expirée.')
+      restoreSession(json.data)
+      const step = json.data.mapping ? 'mapping' : 'ingestion'
+      if (step === 'mapping') {
+        onRestore('mapping')
+      }
+      // If no mapping yet, sources are loaded but we stay — context/sources are now in state
+    } catch (err) {
+      setErrors(e => ({ ...e, global: err.message }))
+      removeFromHistory(entry.session_id)
+      setHistory(loadHistory())
+    } finally {
+      setRestoring(null)
+    }
+  }
+
+  function handleDelete(e, session_id) {
+    e.stopPropagation()
+    removeFromHistory(session_id)
+    setHistory(loadHistory())
   }
 
   const bothLoaded = sources.A && sources.B
@@ -69,6 +116,40 @@ export default function StepIngestion({ onDone }) {
     <div style={styles.container}>
       <h1 style={styles.title}>Index</h1>
       <p style={styles.subtitle}>Croisez deux sources de données en quelques minutes.</p>
+
+      {/* Sessions récentes */}
+      {history.length > 0 && (
+        <div style={styles.historyBlock}>
+          <div style={styles.historyHeader}>
+            <span style={styles.historyTitle}>Sessions récentes</span>
+            <span style={styles.historyHint}>({history.length}/5)</span>
+          </div>
+          <div style={styles.historyList}>
+            {history.map(entry => (
+              <div key={entry.session_id} style={styles.historyRow}>
+                <div style={styles.historyInfo}>
+                  <span style={styles.historyLabels}>
+                    {entry.label_a} <span style={styles.historyArrow}>↔</span> {entry.label_b}
+                  </span>
+                  <span style={styles.historyDate}>{formatDate(entry.created_at)}</span>
+                </div>
+                <div style={styles.historyActions}>
+                  <button
+                    style={styles.btnResume}
+                    disabled={restoring === entry.session_id}
+                    onClick={() => handleRestore(entry)}
+                  >
+                    {restoring === entry.session_id ? '…' : 'Reprendre'}
+                  </button>
+                  <button style={styles.btnDelete} onClick={e => handleDelete(e, entry.session_id)} title="Supprimer">
+                    ✕
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div style={styles.sourcesRow}>
         {['A', 'B'].map(slot => (
@@ -116,6 +197,11 @@ export default function StepIngestion({ onDone }) {
       </button>
     </div>
   )
+}
+
+function formatDate(iso) {
+  const d = new Date(iso)
+  return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
 function SourceZone({ slot, label, schema, loading, error, urlMode, urlValue, onToggleMode, onFile, onUrlChange, onUrlSubmit }) {
@@ -183,7 +269,33 @@ function SourceZone({ slot, label, schema, loading, error, urlMode, urlValue, on
 const styles = {
   container: { maxWidth: 860, margin: '0 auto', padding: '2rem 1rem', fontFamily: 'sans-serif' },
   title: { fontSize: '2rem', fontWeight: 700, marginBottom: '0.25rem' },
-  subtitle: { color: '#555', marginBottom: '2rem' },
+  subtitle: { color: '#555', marginBottom: '1.5rem' },
+  historyBlock: {
+    border: '1px solid #e0e0e0', borderRadius: 8, padding: '1rem',
+    marginBottom: '1.5rem', background: '#fafafa',
+  },
+  historyHeader: { display: 'flex', alignItems: 'baseline', gap: '0.5rem', marginBottom: '0.6rem' },
+  historyTitle: { fontWeight: 600, fontSize: '0.9rem', color: '#444' },
+  historyHint: { fontSize: '0.78rem', color: '#aaa' },
+  historyList: { display: 'flex', flexDirection: 'column', gap: '0.4rem' },
+  historyRow: {
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+    padding: '0.5rem 0.75rem', background: '#fff', borderRadius: 6,
+    border: '1px solid #ebebeb',
+  },
+  historyInfo: { display: 'flex', flexDirection: 'column', gap: '0.15rem' },
+  historyLabels: { fontSize: '0.88rem', color: '#333', fontWeight: 500 },
+  historyArrow: { color: '#aaa', margin: '0 0.25rem' },
+  historyDate: { fontSize: '0.75rem', color: '#aaa' },
+  historyActions: { display: 'flex', gap: '0.4rem', alignItems: 'center' },
+  btnResume: {
+    padding: '0.3rem 0.8rem', background: '#2980b9', color: '#fff',
+    border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600,
+  },
+  btnDelete: {
+    padding: '0.3rem 0.5rem', background: 'none', border: '1px solid #e0e0e0',
+    borderRadius: 4, cursor: 'pointer', fontSize: '0.78rem', color: '#aaa',
+  },
   sourcesRow: { display: 'flex', gap: '1.5rem', flexWrap: 'wrap', marginBottom: '1.5rem' },
   zone: { flex: 1, minWidth: 280, border: '1px solid #ddd', borderRadius: 8, padding: '1rem' },
   zoneHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' },

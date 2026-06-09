@@ -15,6 +15,7 @@ export default function MappingCard({ sessionId, index, proposal, schemaA, schem
   const [refineText, setRefineText] = useState('')
   const [refineLoading, setRefineLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [keep, setKeep] = useState('a') // 'a' | 'b' | 'both'
 
   const explainUrl = `${BASE}/api/sessions/${sessionId}/mappings/${index}/explain`
   const samplesA = _getSamples(schemaA, proposal.col_a)
@@ -93,14 +94,34 @@ export default function MappingCard({ sessionId, index, proposal, schemaA, schem
       </div>
 
       {!rejectMode && (
-        <div style={styles.actions}>
-          <button style={{ ...styles.btn, ...styles.btnConfirm }} disabled={streaming} onClick={onConfirm}>
-            Confirmer
-          </button>
-          <button style={{ ...styles.btn, ...styles.btnReject }} disabled={streaming} onClick={() => setRejectMode('choose')}>
-            Rejeter
-          </button>
-        </div>
+        <>
+          <div style={styles.keepRow}>
+            <span style={styles.keepLabel}>Colonne à conserver dans le dataset :</span>
+            <div style={styles.keepGroup}>
+              {[
+                { value: 'a', label: `Source A (${proposal.col_a})` },
+                { value: 'b', label: `Source B (${proposal.col_b})` },
+                { value: 'both', label: 'Les deux' },
+              ].map(opt => (
+                <button
+                  key={opt.value}
+                  style={{ ...styles.keepBtn, ...(keep === opt.value ? styles.keepBtnActive : {}) }}
+                  onClick={() => setKeep(opt.value)}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div style={styles.actions}>
+            <button style={{ ...styles.btn, ...styles.btnConfirm }} disabled={streaming} onClick={() => onConfirm(keep)}>
+              Confirmer
+            </button>
+            <button style={{ ...styles.btn, ...styles.btnReject }} disabled={streaming} onClick={() => setRejectMode('choose')}>
+              Rejeter
+            </button>
+          </div>
+        </>
       )}
 
       {rejectMode === 'choose' && (
@@ -201,6 +222,11 @@ function _getSamples(schema, colName) {
 }
 
 const styles = {
+  keepRow: { borderTop: '1px solid #eee', paddingTop: '0.75rem', marginBottom: '0.75rem' },
+  keepLabel: { fontSize: '0.85rem', color: '#555', display: 'block', marginBottom: '0.4rem' },
+  keepGroup: { display: 'flex', gap: '0.5rem', flexWrap: 'wrap' },
+  keepBtn: { padding: '0.35rem 0.9rem', border: '1px solid #ccc', borderRadius: 4, background: '#f8f9fa', cursor: 'pointer', fontSize: '0.85rem' },
+  keepBtnActive: { background: '#2980b9', color: '#fff', border: '1px solid #2980b9' },
   card: { border: '1px solid #ddd', borderRadius: 10, padding: '1.5rem', marginBottom: '1.5rem', background: '#fff' },
   header: { marginBottom: '1rem' },
   columns: { display: 'flex', alignItems: 'flex-start', gap: '1rem', marginBottom: '1rem' },

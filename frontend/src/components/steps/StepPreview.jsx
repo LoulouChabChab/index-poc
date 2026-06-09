@@ -78,8 +78,17 @@ export default function StepPreview({ onCorrect }) {
         <>
           <p style={styles.summary}>
             {preview.total_rows} lignes · {preview.total_cols} colonnes
+            {preview.join_key && <span style={styles.note}> — joint sur <strong>{preview.join_key}</strong></span>}
             {preview.total_rows > 25 && <span style={styles.note}> — aperçu des 25 premières lignes</span>}
           </p>
+
+          {preview.has_duplicates && (
+            <div style={styles.warning}>
+              <strong>Attention :</strong> la jointure a généré {preview.duplicate_count} ligne{preview.duplicate_count > 1 ? 's' : ''} en doublon,
+              ce qui indique que la colonne de jointure n'est pas unique dans l'une des sources.
+              Vérifiez vos données ou corrigez le mapping.
+            </div>
+          )}
 
           <div style={styles.tableWrapper}>
             <table style={styles.table}>
@@ -150,4 +159,8 @@ const styles = {
   radioLabel: { display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', fontSize: '0.95rem' },
   btnExport: { padding: '0.7rem 2rem', background: '#27ae60', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: '1rem' },
   btnCorrect: { background: 'none', border: '1px solid #bdc3c7', padding: '0.6rem 1.4rem', borderRadius: 6, cursor: 'pointer', color: '#555', fontSize: '0.9rem' },
+  warning: {
+    background: '#fff8e1', border: '1px solid #f9a825', borderRadius: 6,
+    padding: '0.75rem 1rem', marginBottom: '1rem', fontSize: '0.9rem', color: '#5d4037',
+  },
 }

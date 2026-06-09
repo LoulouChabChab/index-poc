@@ -11,8 +11,14 @@ export function SessionProvider({ children }) {
     setSources(prev => ({ ...prev, [slot]: schema }))
   }
 
+  function restoreSession(data) {
+    setSessionId(data.session_id)
+    setSources(data.sources || { A: null, B: null })
+    setContext(data.context || '')
+  }
+
   return (
-    <SessionContext.Provider value={{ sessionId, setSessionId, sources, setSource, context, setContext }}>
+    <SessionContext.Provider value={{ sessionId, setSessionId, sources, setSource, context, setContext, restoreSession }}>
       {children}
     </SessionContext.Provider>
   )

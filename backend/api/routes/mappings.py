@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -15,13 +16,29 @@ async def analyze(session_id: str):
     if "A" not in sources or "B" not in sources:
         raise HTTPException(status_code=422, detail="Les deux sources doivent être chargées avant l'analyse.")
 
-    try:
-        result = await analyze_schemas(sources["A"], sources["B"], session.get("context", ""))
-    except ValueError as e:
-        raise HTTPException(status_code=502, detail=str(e))
+    update_session(session_id, {"analyze_status": "pending", "analyze_error": None})
 
-    update_session(session_id, {"mapping": result})
-    return {"data": result, "error": None}
+    async def _run():
+        try:
+            result = await analyze_schemas(sources["A"], sources["B"], session.get("context", ""))
+            update_session(session_id, {"mapping": result, "analyze_status": "done"})
+        except Exception as e:
+            import traceback
+            err = traceback.format_exc()
+            print("ANALYZE ERROR:", err)
+            update_session(session_id, {"analyze_status": "error", "analyze_error": err})
+
+    asyncio.create_task(_run())
+    return {"data": {"status": "pending"}, "error": None}
+
+
+@router.get("/sessions/{session_id}/analyze/status")
+async def analyze_status(session_id: str):
+    session = _get_or_404(session_id)
+    status = session.get("analyze_status", "idle")
+    error = session.get("analyze_error")
+    mapping = session.get("mapping")
+    return {"data": {"status": status, "mapping": mapping, "error": error}, "error": None}
 
 
 @router.get("/sessions/{session_id}/mappings")
@@ -53,15 +70,16 @@ async def explain(session_id: str, index: int):
 
 
 class ConfirmPayload(BaseModel):
-    pass
+    keep: str = "a"  # "a" | "b" | "both"
 
 
 @router.post("/sessions/{session_id}/mappings/{index}/confirm")
-async def confirm(session_id: str, index: int):
+async def confirm(session_id: str, index: int, body: ConfirmPayload):
     session = _get_or_404(session_id)
     _get_proposal(session, index)
     mapping = session["mapping"]
     mapping["proposals"][index]["status"] = "confirmed"
+    mapping["proposals"][index]["keep"] = body.keep
     update_session(session_id, {"mapping": mapping})
     return {"data": {"ok": True}, "error": None}
 

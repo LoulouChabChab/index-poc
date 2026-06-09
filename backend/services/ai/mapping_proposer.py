@@ -23,7 +23,14 @@ SOURCE A :
 SOURCE B :
 {fmt(schema_b)}
 
-Réponds UNIQUEMENT avec un objet JSON valide, sans texte avant ni après, respectant exactement ce format :
+Avant de produire le JSON, raisonne étape par étape :
+1. Pour chaque colonne de la source A, identifie ce qu'elle représente d'après son nom et ses exemples.
+2. Pour chaque colonne de la source B, fais de même.
+3. Cherche les paires les plus probables en comparant sémantique et format des valeurs.
+4. Évalue la confiance (high/medium/low) selon la similarité nom + contenu.
+5. Liste les colonnes sans correspondance.
+
+Une fois ce raisonnement terminé, produis UNIQUEMENT le JSON final, sans aucun autre texte après lui :
 {{
   "proposals": [
     {{
@@ -39,8 +46,7 @@ Réponds UNIQUEMENT avec un objet JSON valide, sans texte avant ni après, respe
 Règles :
 - Trie les propositions par ordre décroissant de confiance (high d'abord)
 - N'inclus une colonne que dans UNE SEULE proposition ou dans unmatched, jamais les deux
-- Si aucune correspondance n'est possible, laisse proposals vide
-- Réponds uniquement avec le JSON, rien d'autre"""
+- Si aucune correspondance n'est possible, laisse proposals vide"""
 
 
 def _build_explain_prompt(col_a: str, samples_a: list, col_b: str, samples_b: list, confidence: str, context: str) -> str:
@@ -83,6 +89,8 @@ Réponds uniquement avec le JSON, rien d'autre."""
 async def analyze_schemas(schema_a: dict, schema_b: dict, context: str) -> dict:
     prompt = _build_analysis_prompt(schema_a, schema_b, context)
     raw = await generate(prompt)
+    import tempfile, pathlib
+    pathlib.Path(tempfile.gettempdir(), "ollama_raw.txt").write_text(raw, encoding="utf-8")
     return _parse_proposals(raw)
 
 
@@ -99,14 +107,49 @@ async def stream_refinement(col_a: str, col_b: str, feedback: str, schema_a: dic
 
 
 def _parse_proposals(raw: str) -> dict:
+    # Essai 1 : JSON complet
     match = re.search(r'\{.*\}', raw, re.DOTALL)
-    if not match:
-        raise ValueError("L'IA n'a pas retourné de réponse structurée. Réessayez.")
-    try:
-        data = json.loads(match.group())
-    except json.JSONDecodeError:
-        raise ValueError("La réponse de l'IA n'a pas pu être interprétée. Réessayez.")
+    if match:
+        text = match.group()
+        try:
+            data = json.loads(text)
+            return _build_result(data)
+        except json.JSONDecodeError:
+            try:
+                fixed = re.sub(r',\s*([}\]])', r'\1', text)
+                fixed = re.sub(r'\}\s*\{', '},{', fixed)
+                data = json.loads(fixed)
+                return _build_result(data)
+            except json.JSONDecodeError:
+                pass
 
+    # Essai 2 : extraire les paires depuis le texte du raisonnement
+    # Format attendu : "col_a <-> col_b (confidence)"
+    proposals = []
+    seen_a, seen_b = set(), set()
+    pair_re = re.compile(
+        r'-\s+([^\n<:]+?)\s*<->\s+([^\n(]+?)\s*\(?(high|medium|low)\)?',
+        re.IGNORECASE
+    )
+    for m in pair_re.finditer(raw):
+        col_a = m.group(1).strip().rstrip(':').strip()
+        col_b = m.group(2).strip().rstrip(':').strip()
+        conf  = m.group(3).lower()
+        if col_a in seen_a or col_b in seen_b:
+            continue
+        proposals.append({"col_a": col_a, "col_b": col_b, "confidence": conf})
+        seen_a.add(col_a)
+        seen_b.add(col_b)
+
+    if proposals:
+        # Trier par confiance
+        order = {"high": 0, "medium": 1, "low": 2}
+        proposals.sort(key=lambda p: order.get(p["confidence"], 3))
+        return _build_result({"proposals": proposals, "unmatched_a": [], "unmatched_b": []})
+
+    raise ValueError("L'IA n'a pas retourné de réponse structurée. Réessayez.")
+
+def _build_result(data: dict) -> dict:
     proposals = []
     for p in data.get("proposals", []):
         proposals.append({
